@@ -52,6 +52,7 @@ Numbas.addExtension('geogebra',[],function(extension) {
                 if(!app.exists) {
                     reject("app.exists does not exist");
                 }
+                clearInterval(int);
                 resolve(app);
             },delay);
         });
@@ -107,6 +108,11 @@ Numbas.addExtension('geogebra',[],function(extension) {
                         part.validate = function() {
                             return true;
                         }
+                        part.suspendData = function() {
+                            return {
+                                base64: app.getBase64()
+                            }
+                        }
                     }
 
                     var check_timeout;
@@ -149,10 +155,11 @@ Numbas.addExtension('geogebra',[],function(extension) {
         el.className = 'numbas-geogebra-applet numbas-geogebra-loading';
         el.innerHTML = 'GeoGebra applet loading...';
 
-        extension.createGeogebraApplet(options)
+        var promise = extension.createGeogebraApplet(options)
         .then(eval_replacements(replacements))
-        .then(link_exercises_to_parts(parts))
-        .then(function(d) {
+        .then(link_exercises_to_parts(parts));
+
+        promise.then(function(d) {
             var interval = setInterval(function() {
                 if(el.parentNode) {
                     el.innerHTML = '';
@@ -169,7 +176,7 @@ Numbas.addExtension('geogebra',[],function(extension) {
             throw(new Numbas.Error(msg));
         });
 
-        return el;
+        return {element:el, promise: promise};
     }
 
     var unwrap = Numbas.jme.unwrapValue;
@@ -180,7 +187,7 @@ Numbas.addExtension('geogebra',[],function(extension) {
         }
         return replacements.value.map(function(v) {
             if(v.type!='list') {
-                throw(new Error("GeoGebra replacement "+Numbas.jme.treeToJME({tok:v})+" is not an array - it should be an array of the form [name,definition]."));
+                throw(new Error("GeoGebra replacement "+Numbas.jme.display.treeToJME({tok:v})+" is not an array - it should be an array of the form [name,definition]."));
             }
             if(v.value[0].type!='string') {
                 throw(new Error("Error in replacement - first element should be the name of an object; instead it's a "+v.value[0].type));
@@ -206,14 +213,14 @@ Numbas.addExtension('geogebra',[],function(extension) {
     }
 
     extension.scope.addFunction(new funcObj('geogebra_applet',[TString],THTML,function(material_id) {
-        return jmeCreateGeogebraApplet({material_id:clean_material_id(material_id)},[],{});
+        return jmeCreateGeogebraApplet({material_id:clean_material_id(material_id)},[],{}).element;
     },{unwrapValues:true}));
 
     extension.scope.addFunction(new funcObj('geogebra_applet',[TString,TList],THTML,null,{
         evaluate: function(args,scope) {
             var material_id = unwrap(args[0]);
             var replacements = jme_unwrap_replacements(args[1]);
-            return new THTML(jmeCreateGeogebraApplet({material_id:clean_material_id(material_id)},replacements,{}));
+            return new THTML(jmeCreateGeogebraApplet({material_id:clean_material_id(material_id)},replacements,{}).element);
         },
         unwrapValues: true
     }));
@@ -227,10 +234,37 @@ Numbas.addExtension('geogebra',[],function(extension) {
             var parts = {};
             if(question) {
                 partrefs.forEach(function(d) {
-                    parts[d[0]] = question.getPart(d[1]);
+                    var part = parts[d[0]] = question.getPart(d[1]);
+                    if(part.type != 'extension') {
+                        throw(new Error("Target of a geogebra exercise must be an extension part; "+d[1]+" is of type "+part.type));
+                    }
+                    parts[d[0]].suspendData = function() {};
                 });
             }
-            return new THTML(jmeCreateGeogebraApplet({material_id:clean_material_id(material_id)},replacements,parts));
+            var result = jmeCreateGeogebraApplet({material_id:clean_material_id(material_id)},replacements,parts);
+            var first = true;
+            for(var key in parts) {
+                var part = parts[key];
+                part.mark = function() {};
+                part.validate = function() {return true;}
+                var pobj = Numbas.store.loadExtensionPart(part);
+                if(pobj && pobj.extension_data) {
+                    var base64 = pobj.extension_data.base64;
+                    if(base64) {
+                        result.promise.then(function(d) {
+                            d.app.setBase64(base64);
+                            var p = part;
+                            while(p.parentPart) {
+                                p = p.parentPart;
+                            }
+                            p.submit();
+                        });
+                        break;
+                    }
+                }
+            }
+
+            return new THTML(result.element);
         },
         unwrapValues:true
     }));
