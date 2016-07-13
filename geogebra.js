@@ -103,6 +103,9 @@ Numbas.addExtension('geogebra',[],function(extension) {
                         return function() {
                             var results = app.getExerciseResult();
                             var result = results[toolName];
+                            if(!result) {
+                                throw(new Numbas.Error('GeoGebra tool '+toolName+' is not defined.'));
+                            }
                             this.setCredit(result.fraction,result.hint);
                         }
                     }
@@ -147,7 +150,7 @@ Numbas.addExtension('geogebra',[],function(extension) {
 
     function clean_material_id(material_id) {
         var m;
-        if(m=material_id.match(/(?:geogebra.org\/m|ggbm.at)\/([a-zA-Z0-9]+)$/)) {
+        if(m=material_id.match(/(?:(?:beta.)?geogebra.org\/m|ggbm.at)\/([a-zA-Z0-9]+)$/)) {
             material_id = m[1];
         }
         return material_id;
