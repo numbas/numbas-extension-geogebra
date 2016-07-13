@@ -95,20 +95,25 @@ Numbas.addExtension('geogebra',[],function(extension) {
      */
     function link_exercises_to_parts(parts) {
         return function(d) {
+
             return new Promise(function(resolve,reject) {
                 var app = d.app;
                 if(app.isExercise()) {
-                    for(var toolName in parts) {
-                        var part = parts[toolName];
-                        part.mark = function() {
+                    function make_marker(toolName) {
+                        return function() {
                             var results = app.getExerciseResult();
                             var result = results[toolName];
                             this.setCredit(result.fraction,result.hint);
                         }
+                    }
+
+                    for(var toolName in parts) {
+                        var part = parts[toolName];
+                        part.mark = make_marker(toolName);
                         part.validate = function() {
                             return true;
                         }
-                        part.suspendData = function() {
+                        part.createSuspendData = function() {
                             return {
                                 base64: app.getBase64()
                             }
@@ -238,7 +243,6 @@ Numbas.addExtension('geogebra',[],function(extension) {
                     if(part.type != 'extension') {
                         throw(new Error("Target of a geogebra exercise must be an extension part; "+d[1]+" is of type "+part.type));
                     }
-                    parts[d[0]].suspendData = function() {};
                 });
             }
             var result = jmeCreateGeogebraApplet({material_id:clean_material_id(material_id)},replacements,parts);
@@ -247,9 +251,9 @@ Numbas.addExtension('geogebra',[],function(extension) {
                 var part = parts[key];
                 part.mark = function() {};
                 part.validate = function() {return true;}
-                var pobj = Numbas.store.loadExtensionPart(part);
-                if(pobj && pobj.extension_data) {
-                    var base64 = pobj.extension_data.base64;
+                var data = part.loadSuspendData();
+                if(data) {
+                    var base64 = data.base64;
                     if(base64) {
                         result.promise.then(function(d) {
                             d.app.setBase64(base64);
