@@ -69,11 +69,14 @@ Numbas.addExtension('geogebra',[],function(extension) {
 
     function eval_replacements(replacements) {
         return function(d) {
+            function unescape_braces(s) {
+                return (s+'').replace(/\\\{/g,'{').replace(/\\\}/g,'}');
+            }
             return new Promise(function(resolve,reject) {
                 var app = d.app;
                 replacements.forEach(function(r) {
                     //app.setFixed(r[0],false);
-                    var cmd = r[0]+' = '+r[1];
+                    var cmd = unescape_braces(r[0]+' = '+r[1]);
                     var ok = app.evalCommand(cmd);
                     if(!ok) {
                         // try unfixing the object - if the command succeeds this time, the object was just fixed and the command is fine
@@ -190,9 +193,6 @@ Numbas.addExtension('geogebra',[],function(extension) {
     var unwrap = Numbas.jme.unwrapValue;
 
     function jme_unwrap_replacements(replacements) {
-        function unescape_braces(s) {
-            return (s+'').replace(/\\\{/g,'{').replace(/\\\}/g,'}');
-        }
         return replacements.value.map(function(v) {
             if(v.type!='list') {
                 throw(new Error("GeoGebra replacement "+Numbas.jme.display.treeToJME({tok:v})+" is not an array - it should be an array of the form [name,definition]."));
