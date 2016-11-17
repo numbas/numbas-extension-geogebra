@@ -2,6 +2,8 @@
 
 An extension for Numbas which integrates [GeoGebra](https://www.geogebra.org) materials. 
 
+To use this extension in a question, tick the "GeoGebra" option on the _Extensions and Scripts_ tab.
+
 All the GeoGebra resources are loaded from [geogebra.org](https://geogebra.org), so this extension *WILL NOT* work offline, or in environments where that domain is blocked or otherwise inaccessible.
 
 **Warning: At the moment, there's no way for this code to detect when the GeoGebra embedding fails, either due to an incorrect ID or a network issue. If you just get "geogebra applet loading..." for a long time, check your browser's console.**
