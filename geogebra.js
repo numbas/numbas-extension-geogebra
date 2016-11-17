@@ -192,29 +192,41 @@ Numbas.addExtension('geogebra',[],function(extension) {
 
     var unwrap = Numbas.jme.unwrapValue;
 
+    function tokToGeoGebra(tok) {
+        switch(tok.type) {
+            case 'string':
+                definition = tok.value;
+                break;
+            case 'number':
+                definition = Numbas.math.niceNumber(tok.value);
+                break;
+            case 'vector':
+                var vec = tok.value.map(Numbas.math.niceNumber);
+                definition = '('+vec[0]+','+vec[1]+')';
+                break;
+            case 'list':
+                var list = tok.value.map(tokToGeoGebra);
+                definition = '{'+list.join(',') +'}';
+                break;
+            default:
+                throw(new Error("Replaced value should be a number, string, vector or list, instead it's a "+tok.type));
+        }
+        return definition;
+    }
+
     function jme_unwrap_replacements(replacements) {
         return replacements.value.map(function(v) {
             if(v.type!='list') {
-                throw(new Error("GeoGebra replacement "+Numbas.jme.display.treeToJME({tok:v})+" is not an array - it should be an array of the form [name,definition]."));
+                throw(new Error("GeoGebra replacement "+Numbas.jme.display.tokToJME({tok:v})+" is not an array - it should be an array of the form [name,definition]."));
             }
             if(v.value[0].type!='string') {
                 throw(new Error("Error in replacement - first element should be the name of an object; instead it's a "+v.value[0].type));
             }
             var name = v.value[0].value;
-            var definition
-            switch(v.value[1].type) {
-                case 'string':
-                    definition = v.value[1].value;
-                    break;
-                case 'number':
-                    definition = Numbas.math.niceNumber(v.value[1].value);
-                    break;
-                case 'vector':
-                    var vec = v.value[1].value.map(Numbas.math.niceNumber);
-                    definition = '('+vec[0]+','+vec[1]+')';
-                    break;
-                default:
-                    throw(new Error("Error in replacement - second element should be a number, string or a vector, instead it's a "+v.value[1].type));
+            try {
+                var definition = tokToGeoGebra(v.value[1]);
+            } catch(e) {
+                throw(new Error('Error in replacement of "'+name+'" - '+e.message));
             }
             return [name,definition];
         });
