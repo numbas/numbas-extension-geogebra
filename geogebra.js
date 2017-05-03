@@ -233,7 +233,7 @@ Numbas.addExtension('geogebra',[],function(extension) {
     }
 
     extension.scope.addFunction(new funcObj('geogebra_applet',[TString],THTML,function(material_id) {
-        return jmeCreateGeogebraApplet({material_id:clean_material_id(material_id)},[],{}).element;
+        return new THTML(jmeCreateGeogebraApplet({material_id:clean_material_id(material_id)},[],{}).element);
     },{unwrapValues:true}));
 
     extension.scope.addFunction(new funcObj('geogebra_applet',[TString,TList],THTML,null,{
