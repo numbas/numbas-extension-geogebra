@@ -37,7 +37,7 @@ Numbas.addExtension('geogebra',[],function(extension) {
             options.id = 'numbasGGBApplet'+(window.geogebraIdAcc++);
             options.appletOnLoad = function() {
                 var app = applet.getAppletObject();
-                resolve({app:app,el:el});
+                resolve({app:app,el:el, id:options.id});
             };
             applet = new GGBApplet(options, true);
             el = document.createElement('div');
@@ -60,10 +60,11 @@ Numbas.addExtension('geogebra',[],function(extension) {
 
     extension.createGeogebraApplet = function(options) {
         var element;
+        var id;
         return loadGGB
             .then(function() { return injectApplet(options)})
-            .then(function(d){ element=d.el; return constructionFinished(d.app)})
-            .then(function(app) { return new Promise(function(resolve,reject) { resolve({app:app,element:element}); }) })
+            .then(function(d){ element=d.el; id = d.id; return constructionFinished(d.app)})
+            .then(function(app) { return new Promise(function(resolve,reject) { resolve({app:app,element:element, id: id}); }) })
         ;
     }
 
@@ -75,7 +76,6 @@ Numbas.addExtension('geogebra',[],function(extension) {
             return new Promise(function(resolve,reject) {
                 var app = d.app;
                 replacements.forEach(function(r) {
-                    //app.setFixed(r[0],false);
                     var cmd = unescape_braces(r[0]+' = '+r[1]);
                     var ok = app.evalCommand(cmd);
                     if(!ok) {
@@ -88,8 +88,10 @@ Numbas.addExtension('geogebra',[],function(extension) {
                         }
                     }
                 });
-                app.setBase64(app.getBase64()); // reset the undo history
-                resolve(d);
+                // reset the undo history
+                app.setBase64(app.getBase64(), function() {
+                    resolve(d);
+                }); 
             });
         }
     }
@@ -109,6 +111,7 @@ Numbas.addExtension('geogebra',[],function(extension) {
                             if(!result) {
                                 throw(new Numbas.Error('GeoGebra tool '+toolName+' is not defined.'));
                             }
+                            this.answered = true;
                             this.setCredit(result.fraction,result.hint);
                         }
                     }
@@ -135,9 +138,10 @@ Numbas.addExtension('geogebra',[],function(extension) {
                             }
                         },100);
                     }
-                    app.registerUpdateListener(check);
                     app.registerAddListener(check);
                     app.registerUpdateListener(check);
+                    app.registerRemoveListener(check);
+                    app.registerStoreUndoListener(check);
                 }
                 resolve(d);
             })
