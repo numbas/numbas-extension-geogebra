@@ -18,7 +18,7 @@ Numbas.addExtension('geogebra',[],function(extension) {
             if(!injectedDeployScript) {
                 var s = document.createElement('script');
                 s.setAttribute('type','text/javascript');
-                s.setAttribute('src','https://www.geogebra.org/scripts/deployggb.js');
+                s.setAttribute('src','https://cdn.geogebra.org/apps/deployggb.js');
                 document.head.appendChild(s);
                 injectedDeployScript = true;
             }
