@@ -1,5 +1,7 @@
-Numbas.addExtension('geogebra',[],function(extension) {
+Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) {
     window.geogebraIdAcc = window.geogebraIdAcc || 0;
+
+    var jme = Numbas.jme;
 
     var delay = 10;
     var container;
@@ -148,8 +150,8 @@ Numbas.addExtension('geogebra',[],function(extension) {
         }
     }
 
-	var types = Numbas.jme.types;
-	var funcObj = Numbas.jme.funcObj;
+	var types = jme.types;
+	var funcObj = jme.funcObj;
     var TString = types.TString;
     var TNum = types.TNum;
 	var TList = types.TList;
@@ -194,9 +196,16 @@ Numbas.addExtension('geogebra',[],function(extension) {
         return {element:el, promise: promise};
     }
 
-    var unwrap = Numbas.jme.unwrapValue;
+    var unwrap = jme.unwrapValue;
 
     function tokToGeoGebra(tok) {
+        var known_types = ['string','number','vector','list'];
+        for(var i=0;i<known_types.length;i++) {
+            if(jme.isType(tok,known_types[i])) {
+                tok = jme.castToType(tok,known_types[i]);
+                break;
+            }
+        }
         switch(tok.type) {
             case 'string':
                 definition = tok.value;
@@ -220,9 +229,10 @@ Numbas.addExtension('geogebra',[],function(extension) {
 
     function jme_unwrap_replacements(replacements) {
         return replacements.value.map(function(v) {
-            if(v.type!='list') {
-                throw(new Error("GeoGebra replacement "+Numbas.jme.display.tokToJME({tok:v})+" is not an array - it should be an array of the form [name,definition]."));
+            if(!jme.isType(v,'list')) {
+                throw(new Error("GeoGebra replacement "+jme.display.tokToJME({tok:v})+" is not an array - it should be an array of the form [name,definition]."));
             }
+            v = jme.castToType(v,'list');
             if(v.value[0].type!='string') {
                 throw(new Error("Error in replacement - first element should be the name of an object; instead it's a "+v.value[0].type));
             }
