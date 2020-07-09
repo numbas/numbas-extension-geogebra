@@ -2,6 +2,7 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
     window.geogebraIdAcc = window.geogebraIdAcc || 0;
 
     var jme = Numbas.jme;
+    var sig = jme.signature;
 
     var delay = 10;
     var container;
@@ -228,38 +229,56 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
     }
 
     function jme_unwrap_replacements(replacements) {
-        return replacements.value.map(function(v) {
-            if(!jme.isType(v,'list')) {
-                throw(new Error("GeoGebra replacement "+jme.display.tokToJME({tok:v})+" is not an array - it should be an array of the form [name,definition]."));
-            }
-            v = jme.castToType(v,'list');
-            if(v.value[0].type!='string') {
-                throw(new Error("Error in replacement - first element should be the name of an object; instead it's a "+v.value[0].type));
-            }
-            var name = v.value[0].value;
-            try {
-                var definition = tokToGeoGebra(v.value[1]);
-            } catch(e) {
-                throw(new Error('Error in replacement of "'+name+'" - '+e.message));
-            }
-            return [name,definition];
-        });
+        if(jme.isType(replacements,'list')) {
+            return replacements.value.map(function(v) {
+                if(!jme.isType(v,'list')) {
+                    throw(new Error("GeoGebra replacement <code>"+jme.display.treeToJME({tok:v})+"</code> is not an array - it should be an array of the form <code>[name,definition]</code>."));
+                }
+                v = jme.castToType(v,'list');
+                if(v.value[0].type!='string') {
+                    throw(new Error("Error in replacement - first element should be the name of an object; instead it's a "+v.value[0].type));
+                }
+                var name = v.value[0].value;
+                try {
+                    var definition = tokToGeoGebra(v.value[1]);
+                } catch(e) {
+                    throw(new Error('Error in replacement of "'+name+'" - '+e.message));
+                }
+                return [name,definition];
+            });
+        } else if(jme.isType(replacements,'dict')) {
+            return Object.keys(replacements.value).map(function(name) {
+                try {
+                    var definition = tokToGeoGebra(replacements.value[name]);
+                } catch(e) {
+                    throw(new Error('Error in replacement of "'+name+'" - '+e.message));
+                }
+                return [name,definition];
+            });
+        }
     }
 
     extension.scope.addFunction(new funcObj('geogebra_applet',[TString],THTML,function(material_id) {
         return new THTML(jmeCreateGeogebraApplet({material_id:clean_material_id(material_id)},[],{}).element);
     },{unwrapValues:true}));
 
-    extension.scope.addFunction(new funcObj('geogebra_applet',[TString,TList],THTML,null,{
+    extension.scope.addFunction(new funcObj('geogebra_applet',[TString,sig.or(sig.type('list'),sig.type('dict'))],THTML,null,{
         evaluate: function(args,scope) {
             var material_id = unwrap(args[0]);
-            var replacements = jme_unwrap_replacements(args[1]);
+            try {
+                var replacements = jme_unwrap_replacements(args[1]);
+            } catch(e) {
+                console.error(e);
+                var p = document.createElement('p');
+                p.innerHTML = 'Error loading GeoGebra applet: '+e.message;
+                return new THTML(p);
+            }
             return new THTML(jmeCreateGeogebraApplet({material_id:clean_material_id(material_id)},replacements,{}).element);
         },
         unwrapValues: true
     }));
 
-    extension.scope.addFunction(new funcObj('geogebra_applet',[TString,TList,TList],THTML,null,{
+    extension.scope.addFunction(new funcObj('geogebra_applet',[TString,sig.or(sig.type('list'),sig.type('dict')),TList],THTML,null,{
         evaluate: function(args,scope) {
             var material_id = unwrap(args[0]);
             var replacements = jme_unwrap_replacements(args[1]);

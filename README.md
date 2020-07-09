@@ -14,9 +14,9 @@ All the GeoGebra resources are loaded from [geogebra.org](https://geogebra.org),
 
 *Load a GeoGebra material, and return the HTML element containing it.*
 
-The first parameter is either the material's ID (e.g. `jJ3zQ29z` - it's the random-looking bit in the material's URL), or the URL of the material, such as `https://www.geogebra.org/material/edit/id/jJ3zQ29z` or `http://ggbm.at/jJ3zQ29z`.
+The first parameter is either the material's ID (e.g. `jJ3zQ29z` - it's the random-looking bit in the material's URL), or the URL of the material, such as `https://www.geogebra.org/m/jJ3zQ29z` or `http://ggbm.at/jJ3zQ29z`.
 
-The optional second parameter is a list of definitions (or re-definitions) of objects, in the form `[name,definition]`. The definition can be:
+The optional second parameter is a dictionary of definitions (or re-definitions) of objects. The definition can be:
 
 * a number;
 * a vector, which produces a point in the GeoGebra applet;
@@ -34,7 +34,7 @@ To assign the result of the exercise called `Exercise1` to the first gap in Numb
 #### Example usage
 
 ```
-geogebra_applet('https://www.geogebra.org/m/jJ3zQ29z',[['A',vector(ax,ay)],['B',vector(bx,by)],['C',vector(cx,cy)]])
+geogebra_applet('https://www.geogebra.org/m/jJ3zQ29z',[A: vector(ax,ay), B: vector(bx,by), C: vector(cx,cy)])
 ```
 
 Loads the given worksheet, and moves points A,B and C to the given positions.
