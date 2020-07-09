@@ -160,7 +160,7 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
 
     function clean_material_id(material_id) {
         var m;
-        if(m=material_id.match(/(?:(?:beta.)?geogebra.org\/m|ggbm.at)\/([a-zA-Z0-9]+)$/)) {
+        if(m=material_id.match(/(?:(?:beta.)?geogebra.org\/(?:[a-zA-Z0-9]+)|ggbm.at)\/([a-zA-Z0-9]+)$/)) {
             material_id = m[1];
         }
         return material_id;
