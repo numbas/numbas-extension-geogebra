@@ -4,6 +4,15 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
     var jme = Numbas.jme;
     var sig = jme.signature;
 
+	var types = jme.types;
+	var funcObj = jme.funcObj;
+    var TString = types.TString;
+    var TVector = types.TVector;
+    var TNum = types.TNum;
+    var TDict = types.TDict;
+    var TBool = types.TBool;
+    var THTML = types.THTML;
+
     var delay = 10;
     var container;
 	$(document).ready(function() {
@@ -13,7 +22,51 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
         document.body.appendChild(container);
 	});
 
+    var TGGBApplet = function(data) {
+        var a = this;
+        this.promise = data.promise;
+        this.container = data.element;
+        
+        this.promise.then(function(d) {
+            a.app = d.app;
+            a.id = d.id;
+        });
+
+    }
+    jme.registerType(
+        TGGBApplet,
+        'ggbapplet',
+        {
+            'html': function(v) {
+                return new jme.types.THTML(v.container);
+            }
+        }
+    );
+    jme.display.registerType(
+        TGGBApplet,
+        {
+            tex: function(v) {
+                return '\\text{GeoGebra applet}';
+            },
+            jme: function(v) {
+                return 'GeoGebra applet';
+            },
+            displayString: function(v) {
+                return 'GeoGebra applet';
+            }
+        }
+    );
+
+    Numbas.util.equalityTests.ggbapplet = function(a,b) {
+        return a.container == b.container;
+    };
+
     var injectedDeployScript = false;
+
+    /** Load the GeoGebra code from geogebra.org.
+     *
+     * @returns {Promise} - resolves to the `GGBApplet` constructor.
+     */
     var loadGGB = new Promise(function(resolve,reject) {
         if(window.GGBApplet) {
             resolve(GGBApplet);
@@ -34,129 +87,370 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
         }
     });
 
+    /** Inject a GeoGebra applet in the document. Creates a `<div>` element to contain it.
+     *
+     * @param {Object} options - options for `GGBApplet`.
+     * @returns {Promise} - resolves to an object `{app, el}` - `app` is the GGBApplet object, `el` is the container element.
+     */
     var injectApplet = function(options) {
         return new Promise(function(resolve,reject) {
-            var applet, el;
+            var applet, element;
             options.id = 'numbasGGBApplet'+(window.geogebraIdAcc++);
             options.appletOnLoad = function() {
                 var app = applet.getAppletObject();
-                resolve({app:app,el:el, id:options.id});
+                resolve({app: app, element: element, id:options.id});
             };
             applet = new GGBApplet(options, true);
-            el = document.createElement('div');
-            container.appendChild(el);
-            applet.inject(el, 'preferHTML5');
+            element = document.createElement('div');
+            container.appendChild(element);
+            applet.inject(element, 'preferHTML5');
         });
     }
 
-    var constructionFinished = function(app) {
+    /** Returns a promise which resolves when the given app has finished loading.
+     *
+     * @param {Object} d
+     * @returns {Promise}
+     */
+    var constructionFinished = function(d) {
         return new Promise(function(resolve,reject) {
-            var int = setInterval(function() {
-                if(!app.exists) {
+            setTimeout(function() {
+                if(!d.app.exists) {
                     reject("app.exists does not exist");
                 }
-                clearInterval(int);
-                resolve(app);
+                resolve(d);
             },delay);
         });
     }
 
-    extension.createGeogebraApplet = function(options) {
-        var element;
-        var id;
-        return loadGGB
-            .then(function() { return injectApplet(options)})
-            .then(function(d){ element=d.el; id = d.id; return constructionFinished(d.app)})
-            .then(function(app) { return new Promise(function(resolve,reject) { resolve({app:app,element:element, id: id}); }) })
-        ;
+    var replacement_properties = {
+        'caption': 'setCaption',
+        'color': 'setColor',
+        'visible': 'setVisible',
+        'label_visible': 'setLabelVisible',
+        'label_style': 'setLabelStyle',
+        'fixed': 'setFixed',
+        'trace': 'setTrace',
+        'rename': 'renameObject',
+        'layer': 'setLayer',
+        'line_style': 'setLineStyle',
+        'line_thickness': 'setLineThickness',
+        'point_style': 'setPointStyle',
+        'point_size': 'setPointSize',
+        'display_style': 'setDisplayStyle',
+        'filling': 'setFilling'
+    };
+
+    /** Unescape braces in a string
+     * 
+     * @param {string} string
+     * @returns {string}
+     */
+    function unescape_braces(s) {
+        return (s+'').replace(/\\\{/g,'{').replace(/\\\}/g,'}');
     }
 
+    /** Convert a CSS color literal to red, green, blue.
+     * 
+     * @param {string} color
+     * @returns {Array}
+     */
+    function parse_color(color) {
+        var el = document.createElement('geogebra-color-placeholder');
+        document.body.appendChild(el);
+        el.style['color'] = color;
+        var cs = getComputedStyle(el);
+        var m = cs['color'].match(/rgb\((\d+), (\d+), (\d+)\)/);
+        return m.slice(1,4);
+    }
+
+    function replace_geogebra_object(app,name,definition) {
+        if(app.exists(name) && !app.isIndependent(name)) {
+            return;
+        }
+        try {
+            definition = tokToGeoGebra(definition);
+        } catch(e) {
+            reject("Error in replacement of GeoGebra object "+name+" - "+e.message);
+        }
+        var cmd = unescape_braces(name+' = '+definition);
+        var ok = app.evalCommand(cmd);
+        return ok;
+    }
+
+    /** Evaluate a list of object replacements on an app
+     *
+     * @param {Array.<Array>} replacements - an array of replacements in the form `[object name, command]`
+     * @returns {function} - a function which takes an object from {@link createGeogebraApplet} and returns a `Promise` resolving to the same object after variables have been replaced.
+     */
     function eval_replacements(replacements) {
         return function(d) {
-            function unescape_braces(s) {
-                return (s+'').replace(/\\\{/g,'{').replace(/\\\}/g,'}');
-            }
             return new Promise(function(resolve,reject) {
                 var app = d.app;
                 replacements.forEach(function(r) {
-                    var cmd = unescape_braces(r[0]+' = '+r[1]);
-                    var ok = app.evalCommand(cmd);
-                    if(!ok) {
-                        // try unfixing the object - if the command succeeds this time, the object was just fixed and the command is fine
-                        app.setFixed(r[0],false);
-                        if(app.evalCommand(cmd)) {
-                            app.setFixed(r[0],true);
-                        } else {
-                            reject("GeoGebra command '"+cmd+"' failed.")
+                    if(!r.name) {
+                        reject("This GeoGebra object replacement doesn't specify the name of the object.");
+                    }
+                    var name = jme.unwrapValue(r.name);
+                    if(r.definition) {
+                        var ok = replace_geogebra_object(app,name,r.definition);
+                        if(!ok) {
+                            // try unfixing the object - if the command succeeds this time, the object was just fixed and the command is fine
+                            app.setFixed(name,false);
+                            if(app.evalCommand(cmd)) {
+                                app.setFixed(r[0],true);
+                            } else {
+                                reject("GeoGebra command '"+cmd+"' failed.")
+                            }
                         }
                     }
+                    Object.keys(r).forEach(function(key) {
+                        var v = r[key];
+                        switch(key) {
+                            case 'name':
+                            case 'definition':
+                                break;
+                            case 'color':
+                                var v = jme.unwrapValue(r[key]);
+                                var color = parse_color(v);
+                                app.setColor(name,color[0],color[1],color[2]);
+                                break;
+                            default:
+                                if(!key in replacement_properties) {
+                                    return;
+                                }
+                                var v = jme.unwrapValue(r[key]);
+                                app[replacement_properties[key]](name,v);
+                        }
+                    });
                 });
-                // reset the undo history
-                app.setBase64(app.getBase64(), function() {
-                    resolve(d);
-                }); 
+                resolve(d);
             });
         }
     }
 
-    /* Link GeoGebra exercises to Numbas question parts
+    /* Link GeoGebra exercises to Numbas question parts.
+     * When anything about the construction changes, the corresponding parts are marked as dirty. Their marking method is replaced with one which applies the credit from the GeoGebra exercise.
+     *
+     * @param {Object} parts - a dictionary of the form `{toolName: partID}` specifying which tools to link to which parts.
+     * @returns {function} - a function which takes an object from {@link createGeogebraApplet} and resolves to the same object after tools have been linked.
      */
     function link_exercises_to_parts(parts) {
-        return function(d) {
+      return function(d) {
 
+        return new Promise(function(resolve,reject) {
+          var app = d.app;
+
+          // link geogebra tools to part marking (not sure if this still works, or even if geogebra still does exercises)
+          var tools = [];
+          if(app.isExercise()) {
+            function make_marker(toolName) {
+              return function() {
+                var results = app.getExerciseResult();
+                var result = results[toolName];
+                this.answered = true;
+                this.setCredit(result.fraction,result.hint);
+              }
+            }
+
+            var results = app.getExerciseResult();
+            for(var toolName in parts) {
+              var part = parts[toolName];
+
+              if(results[toolName] && part.type=='extension') {
+                tools.push(toolName);
+                part.mark = make_marker(toolName);
+                part.validate = function() {
+                  return true;
+                }
+                part.createSuspendData = function() {
+                  return {
+                    base64: app.getBase64()
+                  }
+                }
+
+                var data = part.loadSuspendData();
+                if(data) {
+                  var base64 = data.base64;
+                  if(base64) {
+                    result.promise.then(function(d) {
+                      d.app.setBase64(base64);
+                      var p = part;
+                      while(p.parentPart) {
+                        p = p.parentPart;
+                      }
+                      p.submit();
+                    });
+                    break;
+                  }
+                }
+              }
+            }
+
+            var check_debounce = Numbas.util.debounce(100);
+            function check() {
+              check_debounce(function() {
+                tools.forEach(function(tool) {
+                  parts[tool].setDirty(true);
+                });
+              });
+            }
+            app.registerAddListener(check);
+            app.registerUpdateListener(check);
+            app.registerRemoveListener(check);
+            app.registerStoreUndoListener(check);
+          }
+
+
+          resolve(d);
+        });
+      }
+    }
+  
+    /** Link GeoGebra object values to part answers.
+     * When the construction is updated, the corresponding parts's answer fields are filled with the values of the given objects.
+     * 
+     * @param {Object} - a dictionary of the form `{object name: part path}`, specfiying which objects feed to which parts.
+     * @see geoGebraToTok
+     * @see set_part_answer
+     */
+    function link_objects_to_parts(parts) {
+        return function(d) {
             return new Promise(function(resolve,reject) {
                 var app = d.app;
-                if(app.isExercise()) {
-                    function make_marker(toolName) {
-                        return function() {
-                            var results = app.getExerciseResult();
-                            var result = results[toolName];
-                            if(!result) {
-                                throw(new Numbas.Error('GeoGebra tool '+toolName+' is not defined.'));
-                            }
-                            this.answered = true;
-                            this.setCredit(result.fraction,result.hint);
-                        }
-                    }
+                var objects = [];
 
-                    for(var toolName in parts) {
-                        var part = parts[toolName];
-                        part.mark = make_marker(toolName);
-                        part.validate = function() {
-                            return true;
-                        }
-                        part.createSuspendData = function() {
-                            return {
-                                base64: app.getBase64()
-                            }
-                        }
+                // link geogebra object values to part answers
+                for(var name in parts) {
+                    if(app.exists(name)) {
+                        objects.push(name);
                     }
-
-                    var check_timeout;
-                    function check() {
-                        clearTimeout(check_timeout);
-                        check_timeout = setTimeout(function() {
-                            for(var tool in parts) {
-                                parts[tool].setDirty(true);
-                            }
-                        },100);
-                    }
-                    app.registerAddListener(check);
-                    app.registerUpdateListener(check);
-                    app.registerRemoveListener(check);
-                    app.registerStoreUndoListener(check);
                 }
+                objects.forEach(function(name) {
+                    var part = parts[name];
+                    part.signals.on('HTMLAttached',function() {
+                        part.display.html.addEventListener('focusout',function(e) {
+                            setTimeout(function() {
+                                var focused = document.activeElement;
+                                var answer_tok = get_part_answer(part,app,name);
+                                if(answer_tok!==undefined) {
+                                    var current_tok = geoGebraToTok(app,name);
+                                    if(!Numbas.util.eq(answer_tok,current_tok)) {
+                                        replace_geogebra_object(app,name,answer_tok);
+                                        if(focused) {
+                                            focused.focus();
+                                        }
+                                    }
+                                }
+                            },1);
+                        })
+                    });
+                });
+                var check_debounce = Numbas.util.debounce(100);
+                function check() {
+                    check_debounce(function() {
+                        objects.forEach(function(name) {
+                            var part = parts[name];
+                            set_part_answer(part,app,name);
+                        });
+                    });
+                }
+                app.registerAddListener(check);
+                app.registerUpdateListener(check);
+                app.registerRemoveListener(check);
+                app.registerStoreUndoListener(check);
+                check();
+
                 resolve(d);
-            })
-        }
+            });
+      }
     }
 
-	var types = jme.types;
-	var funcObj = jme.funcObj;
-    var TString = types.TString;
-    var TNum = types.TNum;
-	var TList = types.TList;
-    var THTML = types.THTML;
+    /** Get the student's answer from a part and update a corresponding GeoGebra object.
+     *
+     * @param {Numbas.parts.Part} part
+     * @param {GGBApplet} app
+     * @param {string} name
+     */
+    function get_part_answer(part,app,name) {
+        var dirty = part.isDirty;
+        var stagedAnswer = part.stagedAnswer;
+        var os = part.studentAnswer;
+        part.setStudentAnswer();
+        var raw_answer = part.rawStudentAnswerAsJME();
+        var answer;
+        (function() {
+            try {
+                var result = part.mark_answer(raw_answer,part.getScope());
+            } catch(e) {
+                return;
+            }
+            if(!result || !result.values || !result.state_valid['interpreted_answer']) {
+                return;
+            }
+            answer = result.values['interpreted_answer'];
+            if(answer.type=='matrix') {
+                answer = new TVector([answer.value[0][0], answer.value[1][0]]);
+            }
+        })();
+        part.storeAnswer(os);
+        part.setStudentAnswer();
+        part.storeAnswer(stagedAnswer);
+        part.setDirty(dirty);
+        return answer;
+    }
+  
+    /** Set the student's answer to a part with the value of a GeoGebra object.
+     * 
+     * @param {Numbas.parts.Part} part
+     * @param {GGBApplet} app
+     * @param {string} name - the name of the GeoGebra object
+     */
+    function set_part_answer(part,app,name) {
+        if(!app.exists(name)) {
+            return;
+        }
+        var tok = geoGebraToTok(app,name);
+        function assert_type(type) {
+            if(!jme.isType(tok,type)) {
+                part.error("The answer for this part should be of type "+type+", but the GeoGebra object "+name+" is of type "+tok.type);
+            }
+            return jme.castToType(tok,type);
+        }
+        var answer;
+        switch(part.type) {
+            case 'numberentry':
+                var val = assert_type('number');
+                answer = Numbas.math.niceNumber(val.value);
+                break;
+            case 'matrix':
+                if(tok.type=='vector') {
+                    var m = tok.value.map(function(c){ return [c]; });
+                    m.rows = tok.value.length;
+                    m.columns = 1;
+                    tok = new types.TMatrix(m);
+                }
+                var val = assert_type('matrix');
+                answer = val.value.map(function(r) {
+                    return r.map(function(c){
+                        return Numbas.math.niceNumber(c);
+                    });
+                })
+                break;
+            case 'jme':
+                var val = assert_type('string');
+                answer = val.value.replace(/(?:^\w.*?(?: =|:))? (.*)/,'$1');
+                break;
+            case 'patternmatch':
+                var val = assert_type('string');
+                answer = val.value;
+                break;
+        }
+        if(!Numbas.util.objects_equal(answer,part.stagedAnswer)) {
+            part.storeAnswer(answer);
+        }
+        part.display.restoreAnswer(part.stagedAnswer);
+    }
 
     function clean_material_id(material_id) {
         var m;
@@ -166,41 +460,90 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
         return material_id;
     }
 
-    function jmeCreateGeogebraApplet(options,replacements,parts) {
+    /** Create a GeoGebra applet with the given options
+     *
+     * @param {Object} options - Options for `GGBApplet`.
+     * @param {Array} replacements - Object replacements to make.
+     * @param {Object} parts - Links between GeoGebra objects or tools and question parts.
+     * @param {Numbas.Question} question - The question the app is embedded in.
+     * @returns {Promise} - Resolves to `{app, element, id}`, where `app` is the `GGBApplet` object, `element` is a container element, and `id` is the ID of the app.
+     */
+    createGeogebraApplet = extension.createGeogebraApplet = function(options,replacements,parts,question) {
         // create a container element, which we'll return
         // when the applet has been loaded, we'll attach it to the container element
-        var el = document.createElement('div');
-        el.className = 'numbas-geogebra-applet numbas-geogebra-loading';
-        el.innerHTML = 'GeoGebra applet loading...';
+        var element = document.createElement('div');
+        element.className = 'numbas-geogebra-applet numbas-geogebra-loading';
+        element.innerHTML = 'GeoGebra applet loading...';
 
-        var promise = extension.createGeogebraApplet(options)
-        .then(eval_replacements(replacements))
-        .then(link_exercises_to_parts(parts));
-
-        promise.then(function(d) {
+        var promise = new Promise(function(resolve,reject) {
             var interval = setInterval(function() {
-                if(el.parentNode) {
-                    el.innerHTML = '';
-                    el.className = 'numbas-geogebra-applet numbas-geogebra-loaded';
-                    el.appendChild(d.element);
+                if(element.parentNode) {
                     clearInterval(interval);
+                    resolve();
                 }
             },delay);
+        });
+
+        promise = promise
+            .then(function() {
+                return loadGGB;
+            })
+            .then(function() { 
+                return injectApplet(options); 
+            })
+            .then(constructionFinished)
+            .then(eval_replacements(replacements))
+        ;
+        if(parts && question) {
+            question.signals.on('partsGenerated',function() {
+                Object.keys(parts).forEach(function(key) {
+                    var part = question.getPart(parts[key]);
+                    parts[key] = part;
+                });
+                promise
+                    .then(link_exercises_to_parts(parts))
+                    .then(link_objects_to_parts(parts))
+                ;
+            });
+        }
+
+        if(!options.material_id) {
+            promise.then(function(d) {
+                var app = d.app;
+                app.showToolBar(false);
+                app.setPerspective("G");
+                app.showMenuBar(false);
+                app.showAlgebraInput(false);
+                app.enableRightClick(false);
+                app.setGridVisible(true);
+                app.setUndoPoint();
+            });
+        }
+
+        promise.then(function(d) {
+            element.innerHTML = '';
+            element.className = 'numbas-geogebra-applet numbas-geogebra-loaded';
+            element.appendChild(d.element);
         })
         .catch(function(e) {
             var msg = "Problem encountered when creating GeoGebra applet: "+e;
-            el.className = 'numbas-geogebra-applet numbas-geogebra-error';
-            el.innerHTML = msg;
+            element.className = 'numbas-geogebra-applet numbas-geogebra-error';
+            element.innerHTML = msg;
             throw(new Numbas.Error(msg));
         });
 
-        return {element:el, promise: promise};
+        return {element:element, promise: promise};
     }
 
     var unwrap = jme.unwrapValue;
 
-    function tokToGeoGebra(tok) {
-        var known_types = ['string','number','vector','list'];
+    /** Convert a JME token to a GeoGebra command
+     *
+     * @param {Numbas.jme.token}
+     * @returns {string}
+     */
+    var tokToGeoGebra = extension.tokToGeoGebra = function(tok) {
+        var known_types = ['vector','list','number','string'];
         for(var i=0;i<known_types.length;i++) {
             if(jme.isType(tok,known_types[i])) {
                 tok = jme.castToType(tok,known_types[i]);
@@ -227,106 +570,281 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
         }
         return definition;
     }
+  
+    /** Get the value of an object from a GeoGebra applet and convert it to a JME token.
+     *
+     * Points are converted to vectors, numeric values are converted to numbers, and everything else just returns the value string.
+     *
+     * @param {GGBApplet} app
+     * @param {string} name - the name of the object
+     * @returns {Numbas.jme.token}
+     */
+  	var geoGebraToTok = extension.geoGebraToTok = function(app,name) {
+      	if(!app.exists(name)) {
+       	    return new types.TNothing();
+        }
+      	var type = app.getObjectType(name);
+      	switch(type) {
+          case 'point':
+              var x = app.getXcoord(name);
+              var y = app.getYcoord(name);
+              return new TVector([x,y]);
+          case 'numeric':
+              var v = app.getValue(name);
+              return new TNum(v);
+          default:
+              var s = app.getValueString(name);
+              return new TString(s);
+        }
+    }
 
+    /** Unwrap a list or dictionary of object replacements to GeoGebra commands
+     *
+     * @param {Numbas.jme.token} replacements - either a dictionary mapping object names to values, or a list of pairs of the form `[name, value]`.
+     * @returns {Array} - a list of paris of the form `[name, GeoGebra command]`.
+     */
     function jme_unwrap_replacements(replacements) {
         if(jme.isType(replacements,'list')) {
             return replacements.value.map(function(v) {
-                if(!jme.isType(v,'list')) {
+                var def;
+                if(jme.isType(v,'dict')) {
+                    v = jme.castToType(v,'dict');
+                    def = v.value;
+                } else if(jme.isType(v,'list')) {
+                    v = jme.castToType(v,'list');
+                    if(v.value[0].type!='string') {
+                        throw(new Error("Error in replacement - first element should be the name of an object; instead it's a "+v.value[0].type));
+                    }
+                    var name = v.value[0].value;
+                    def = {
+                        name: v.value[0],
+                        definition: v.value[1]
+                    };
+                } else {
                     throw(new Error("GeoGebra replacement <code>"+jme.display.treeToJME({tok:v})+"</code> is not an array - it should be an array of the form <code>[name,definition]</code>."));
                 }
-                v = jme.castToType(v,'list');
-                if(v.value[0].type!='string') {
-                    throw(new Error("Error in replacement - first element should be the name of an object; instead it's a "+v.value[0].type));
-                }
-                var name = v.value[0].value;
-                try {
-                    var definition = tokToGeoGebra(v.value[1]);
-                } catch(e) {
-                    throw(new Error('Error in replacement of "'+name+'" - '+e.message));
-                }
-                return [name,definition];
+                return def;
             });
         } else if(jme.isType(replacements,'dict')) {
+            var v = jme.castToType(replacements,'dict');
             return Object.keys(replacements.value).map(function(name) {
-                try {
-                    var definition = tokToGeoGebra(replacements.value[name]);
-                } catch(e) {
-                    throw(new Error('Error in replacement of "'+name+'" - '+e.message));
+                var def = v.value[name];
+                if(jme.isType(def,'dict')) {
+                    def = def.value;
+                } else {
+                    def = {
+                        definition: def
+                    };
                 }
-                return [name,definition];
+                def.name = new TString(name);
+                return def;
             });
         }
     }
 
-    extension.scope.addFunction(new funcObj('geogebra_applet',[TString],THTML,function(material_id) {
-        return new THTML(jmeCreateGeogebraApplet({material_id:clean_material_id(material_id)},[],{}).element);
-    },{unwrapValues:true}));
+    var sig_ggbapplet = sig.sequence(
+        sig.or(
+            sig.label('material_id', sig.type('string')),
+            sig.sequence(
+                sig.label('width',sig.type('number')),
+                sig.label('height',sig.type('number'))
+            )
+        ),
+        sig.optional(
+            sig.or(
+                sig.type('list'),
+                sig.type('dict')
+            )
+        ),
+        sig.optional(
+            sig.type('list')
+        )
+    );
 
-    extension.scope.addFunction(new funcObj('geogebra_applet',[TString,sig.or(sig.type('list'),sig.type('dict'))],THTML,null,{
-        evaluate: function(args,scope) {
-            var material_id = unwrap(args[0]);
-            try {
-                var replacements = jme_unwrap_replacements(args[1]);
-            } catch(e) {
-                console.error(e);
-                var p = document.createElement('p');
-                p.innerHTML = 'Error loading GeoGebra applet: '+e.message;
-                return new THTML(p);
+    /** Load a GeoGebra applet from a geogebra.org material ID, or a blank applet with the given width and height.
+     */
+    extension.scope.addFunction(new funcObj('geogebra_applet', [sig_ggbapplet], TGGBApplet, null, {
+        evaluate: function(args, scope) {
+            var match = sig_ggbapplet(args);
+
+            var options = {};
+            var i = 0;
+            if(match[0].name=='material_id') {
+                var material_id = clean_material_id(args[0].value);
+                if(material_id) {
+                    options.material_id = material_id;
+                }
+                i = 1;
+            } else if(match[0].name == 'width') {
+                options.width = args[0].value;
+                options.height = args[1].value;
+                i = 2;
             }
-            return new THTML(jmeCreateGeogebraApplet({material_id:clean_material_id(material_id)},replacements,{}).element);
-        },
-        unwrapValues: true
-    }));
 
-    extension.scope.addFunction(new funcObj('geogebra_applet',[TString,sig.or(sig.type('list'),sig.type('dict')),TList],THTML,null,{
-        evaluate: function(args,scope) {
-            var material_id = unwrap(args[0]);
-            var replacements = jme_unwrap_replacements(args[1]);
-            var partrefs = args[2] ? unwrap(args[2]) : undefined;
-            var question = scope.question;
+            var replacements = [];
+            if(!match[2].missing) {
+                replacements = jme_unwrap_replacements(args[i]);
+                i += 1;
+            }
+
             var parts = {};
-            if(question) {
+            if(!match[3].missing) {
+                var partrefs = args[i] ? unwrap(args[i]) : undefined;
                 partrefs.forEach(function(d) {
-                    var part = parts[d[0]] = question.getPart(d[1]);
-                    if(part.type != 'extension') {
-                        throw(new Error("Target of a geogebra exercise must be an extension part; "+d[1]+" is of type "+part.type));
-                    }
+                    parts[d[0]] = d[1];
                 });
             }
-            var result = jmeCreateGeogebraApplet({material_id:clean_material_id(material_id)},replacements,parts);
-            var first = true;
-            for(var key in parts) {
-                var part = parts[key];
-                part.mark = function() {};
-                part.validate = function() {return true;}
-                var data = part.loadSuspendData();
-                if(data) {
-                    var base64 = data.base64;
-                    if(base64) {
-                        result.promise.then(function(d) {
-                            d.app.setBase64(base64);
-                            var p = part;
-                            while(p.parentPart) {
-                                p = p.parentPart;
-                            }
-                            p.submit();
-                        });
-                        break;
-                    }
-                }
+            return new TGGBApplet(createGeogebraApplet(options,replacements,parts,scope.question));
+        }
+    },{unwrapValues:true}));
+
+    var sig_ggbbase64 = sig.sequence(
+        sig.type('string'),
+        sig.type('number'),
+        sig.type('number'),
+        sig.optional(
+            sig.or(
+                sig.type('list'),
+                sig.type('dict')
+            )
+        ),
+        sig.optional(
+            sig.type('list')
+        )
+    );
+
+    /** Load a GeoGebra applet from a base-64 string.
+     */
+    extension.scope.addFunction(new funcObj('geogebra_base64',[sig_ggbbase64],TGGBApplet,null,{
+        evaluate: function(args,scope) {
+            var match = sig_ggbbase64(args);
+
+            var options = {};
+            options.ggbBase64 = args[0].value;
+            options.width = args[1].value;
+            options.height = args[2].value;
+
+            var replacements = [];
+            if(!match[3].missing) {
+                replacements = jme_unwrap_replacements(args[3]);
             }
 
-            return new THTML(result.element);
-        },
-        unwrapValues:true
+            var parts = {};
+            if(!match[4].missing) {
+                var partrefs = args[4] ? unwrap(args[4]) : undefined;
+                partrefs.forEach(function(d) {
+                    parts[d[0]] = d[1];
+                });
+            }
+            return createGeogebraApplet(options,replacements,parts,scope.question);
+        }
     }));
 
-    extension.scope.addFunction(new funcObj('geogebra_base64',[TString,TNum,TNum],THTML,function(ggbBase64,width,height) {
-        var options = {
-            ggbBase64: ggbBase64,
-            width: width,
-            height: height
+    var sig_ggbfilename = sig.sequence(
+        sig.type('string'),
+        sig.optional(
+            sig.or(
+                sig.type('list'),
+                sig.type('dict')
+            )
+        ),
+        sig.optional(
+            sig.type('list')
+        )
+    );
+
+    /** Load a GeoGebra applet from a file. The filename can be relative to `resources/question-resources/`, or absolute.
+     */
+    extension.scope.addFunction(new funcObj('geogebra_file',[sig_ggbfilename],TGGBApplet, null, {
+        evaluate: function(args,scope) {
+            var match = sig_ggbbase64(args);
+
+            var filename = args[0].value;
+            if(!filename.match(/\//)) {
+                filename = 'resources/question-resources/'+filename;
+            }
+            var options = {
+                filename: filename
+            };
+
+            var replacements = [];
+            if(!match[1].missing) {
+                replacements = jme_unwrap_replacements(args[1]);
+            }
+
+            var parts = {};
+            if(!match[2].missing) {
+                var partrefs = args[2] ? unwrap(args[2]) : undefined;
+                partrefs.forEach(function(d) {
+                    parts[d[0]] = d[1];
+                });
+            }
+            return createGeogebraApplet(options,replacements,parts,scope.question);
         }
-        return jmeCreateGeogebraApplet(options,[],[]);
     }));
+
+    function app_required(fn) {
+        return function(args,scope) {
+            var app = args[0].app;
+            if(!app) {
+                throw(new Numbas.Error("You can not access a GeoGebra app before it has loaded."));
+            }
+            return fn(args,scope);
+        };
+    }
+      
+    /** Get the value of an object in a GeoGebra applet.
+     */
+    extension.scope.addFunction(new funcObj('value',[TGGBApplet,TString],'?',null,{
+        evaluate: app_required(function(args,scope) {
+            var app = args[0].app;
+            var name = args[1].value;
+            return geoGebraToTok(app,name);
+        })
+    }));
+
+    extension.scope.addFunction(new funcObj('latex',[TGGBApplet,TString],'?',null,{
+        evaluate: app_required(function(args,scope) {
+            var app = args[0].app;
+            var name = args[1].value;
+            var s = new TString(app.getLaTeXString(name));
+            s.latex = true;
+            return s;
+        })
+    }));
+
+    var object_property_getters = [
+        ['x', 'getXcoord', TNum],
+        ['y', 'getYcoord', TNum],
+        ['z', 'getZcoord', TNum],
+        ['color', 'getColor', TString],
+        ['visible', 'getVisible', TBool],
+        ['value_string', 'getValueString', TString],
+        ['definition_string', 'getDefinitionString', TString],
+        ['command_string', 'getCommandString', TString],
+        ['type', 'getObjectType', TString],
+        ['exists', 'exists', TBool],
+        ['defined', 'isDefined', TBool],
+        ['layer', 'getLayer', TString],
+        ['line_style', 'getLineStyle', TNum],
+        ['line_thickness', 'getLineThickness', TNum],
+        ['point_style', 'getPointStyle', TNum],
+        ['point_size', 'getPointSize', TNum],
+        ['caption', 'getCaption', TString],
+        ['label_style', 'getLabelStyle', TNum]
+    ];
+
+    object_property_getters.forEach(function(def) {
+        var jme_name = def[0];
+        var ggb_name = def[1];
+        var outtype = def[2];
+        extension.scope.addFunction(new funcObj(jme_name, [TGGBApplet,TString],outtype,null,{
+            evaluate: app_required(function(args,scope) {
+                var app = args[0].app;
+                var name = args[1].value;
+                return new outtype(app[ggb_name](name));
+            })
+        }));
+    });
+
 });
