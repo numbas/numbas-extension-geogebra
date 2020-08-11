@@ -497,7 +497,11 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
         if(parts && question) {
             question.signals.on('partsGenerated',function() {
                 Object.keys(parts).forEach(function(key) {
-                    var part = question.getPart(parts[key]);
+                    var path = parts[key];
+                    var part = question.getPart(path);
+                    if(!part) {
+                        throw(new Numbas.Error("The GeoGebra object "+key+" is supposed to link to the part with path "+parts[key]+", but that doesn't exist."));
+                    }
                     parts[key] = part;
                 });
                 promise
@@ -682,14 +686,14 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
             }
 
             var replacements = [];
-            if(!match[2].missing) {
+            if(!match[i].missing) {
                 replacements = jme_unwrap_replacements(args[i]);
                 i += 1;
             }
 
             var parts = {};
-            if(!match[3].missing) {
-                var partrefs = args[i] ? unwrap(args[i]) : undefined;
+            if(!match[i].missing) {
+                var partrefs = unwrap(args[i]);
                 partrefs.forEach(function(d) {
                     parts[d[0]] = d[1];
                 });
@@ -731,12 +735,12 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
 
             var parts = {};
             if(!match[4].missing) {
-                var partrefs = args[4] ? unwrap(args[4]) : undefined;
+                var partrefs = unwrap(args[4]);
                 partrefs.forEach(function(d) {
                     parts[d[0]] = d[1];
                 });
             }
-            return createGeogebraApplet(options,replacements,parts,scope.question);
+            return new TGGBApplet(createGeogebraApplet(options,replacements,parts,scope.question));
         }
     }));
 
@@ -757,7 +761,7 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
      */
     extension.scope.addFunction(new funcObj('geogebra_file',[sig_ggbfilename],TGGBApplet, null, {
         evaluate: function(args,scope) {
-            var match = sig_ggbbase64(args);
+            var match = sig_ggbfilename(args);
 
             var filename = args[0].value;
             if(!filename.match(/\//)) {
@@ -774,12 +778,12 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
 
             var parts = {};
             if(!match[2].missing) {
-                var partrefs = args[2] ? unwrap(args[2]) : undefined;
+                var partrefs = unwrap(args[2]);
                 partrefs.forEach(function(d) {
                     parts[d[0]] = d[1];
                 });
             }
-            return createGeogebraApplet(options,replacements,parts,scope.question);
+            return new TGGBApplet(createGeogebraApplet(options,replacements,parts,scope.question));
         }
     }));
 
