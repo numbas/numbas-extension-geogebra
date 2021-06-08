@@ -24,15 +24,29 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
 
     var TGGBApplet = function(data) {
         var a = this;
+        this.app = null;
+        this.id = null;
         this.value = data;
         this.promise = data.promise;
         this.container = data.element;
+        this.cache = {};
         
         this.promise.then(function(d) {
             a.app = d.app;
             a.id = d.id;
         });
 
+    }
+    TGGBApplet.prototype = {
+        cache_set: function(section, name, value) {
+            if(this.cache[section]===undefined) {
+                this.cache[section] = {};
+            }
+            this.cache[section][name] = value;
+        },
+        cache_get: function(section, name) {
+            return this.cache[section] ? this.cache[section][name] : undefined;
+        }
     }
     jme.registerType(
         TGGBApplet,
@@ -59,6 +73,10 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
                 var replacements = jme.wrapValue(data.replacements);
                 var parts = jme.wrapValue(data.parts);
                 var base64 = jme.wrapValue(data.base64);
+                var cache = {};
+                Object.keys(v.tok.cache).forEach(function(section) {
+                    cache[section] = new TDict(v.tok.cache[section]);
+                });
                 var f = new jme.types.TFunc('resume_geogebra_applet');
                 var tree = {
                     tok: f,
@@ -66,7 +84,8 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
                         {tok: options},
                         {tok: replacements},
                         {tok: parts},
-                        {tok: base64}
+                        {tok: base64},
+                        {tok: new TDict(cache)}
                     ]
                 };
                 var s = jme.display.treeToJME(tree);
@@ -848,13 +867,14 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
         }
     }));
 
-    extension.scope.addFunction(new funcObj('resume_geogebra_applet',['dict','list of dict','dict','string'],TGGBApplet, null, {
+    extension.scope.addFunction(new funcObj('resume_geogebra_applet',['dict','list of dict','dict','string','[dict]'],TGGBApplet, null, {
         evaluate: function(args,scope) {
             var q = scope.question;
             var options = jme.unwrapValue(args[0]);
             var replacements = args[1].value.map(function(d) { return d.value; });
             var parts = jme.unwrapValue(args[2]);
             var base64 = jme.unwrapValue(args[3]);
+            var dcache = args[4];
             var applet = createGeogebraApplet(options,replacements,parts,q);
             var paths = {};
             for(var name in parts) {
@@ -879,14 +899,28 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
                     },50);
                 });
             });
-            return new TGGBApplet(applet);
+            var tapp = new TGGBApplet(applet);
+            Object.keys(dcache.value).forEach(function(section) {
+                var section_cache = {};
+                Object.keys(dcache.value[section].value).forEach(function(name) {
+                    section_cache[name] = dcache.value[section].value[name];
+                });
+                tapp.cache[section] = section_cache;
+            });
+            return tapp;
         }
     }));
 
-    function app_required(fn) {
+    function app_required(section, fn) {
         return function(args,scope) {
-            var app = args[0].app;
+            var tapp = args[0];
+            var app = tapp.app;
+            var name = args[1].value;
             if(!app) {
+                cached = tapp.cache_get(section,name);
+                if(cached!==undefined) {
+                    return cached;
+                }
                 var ggb = args[0].value;
                 var part_path = scope.getVariable('part_path');
                 if(part_path) {
@@ -894,22 +928,26 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
                 }
                 throw(new Numbas.Error("You can not access a GeoGebra app before it has loaded."));
             }
-            return fn(args,scope);
+            var value = fn(args,scope);
+            tapp.cache_set(section,name,value);
+            return value;
         };
     }
       
     /** Get the value of an object in a GeoGebra applet.
      */
     extension.scope.addFunction(new funcObj('value',[TGGBApplet,TString],'?',null,{
-        evaluate: app_required(function(args,scope) {
+        evaluate: app_required('value',function(args,scope) {
             var app = args[0].app;
             var name = args[1].value;
             return geoGebraToTok(app,name);
         })
     }));
 
+    /** Get the LaTeX string corresponding to an object in a GeoGebra applet.
+     */
     extension.scope.addFunction(new funcObj('latex',[TGGBApplet,TString],'?',null,{
-        evaluate: app_required(function(args,scope) {
+        evaluate: app_required('latex',function(args,scope) {
             var app = args[0].app;
             var name = args[1].value;
             var s = new TString(app.getLaTeXString(name));
@@ -930,7 +968,7 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
         ['type', 'getObjectType', TString],
         ['exists', 'exists', TBool],
         ['defined', 'isDefined', TBool],
-        ['layer', 'getLayer', TString],
+        ['layer', 'getLayer', TNum],
         ['line_style', 'getLineStyle', TNum],
         ['line_thickness', 'getLineThickness', TNum],
         ['point_style', 'getPointStyle', TNum],
@@ -944,7 +982,7 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
         var ggb_name = def[1];
         var outtype = def[2];
         extension.scope.addFunction(new funcObj(jme_name, [TGGBApplet,TString],outtype,null,{
-            evaluate: app_required(function(args,scope) {
+            evaluate: app_required(jme_name, function(args,scope) {
                 var app = args[0].app;
                 var name = args[1].value;
                 return new outtype(app[ggb_name](name));
