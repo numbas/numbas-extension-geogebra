@@ -206,9 +206,6 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
     }
 
     function replace_geogebra_object(app,name,definition) {
-        if(app.exists(name) && !app.isIndependent(name)) {
-            return;
-        }
         try {
             definition = tokToGeoGebra(definition);
         } catch(e) {
@@ -216,6 +213,7 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
         }
         var cmd = unescape_braces(name+' = '+definition);
         var ok = app.evalCommand(cmd);
+        console.log(name,definition,ok);
         return ok;
     }
 
@@ -241,7 +239,7 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
                             if(replace_geogebra_object(app,name,r.definition)) {
                                 app.setFixed(name,true);
                             } else {
-                                reject("GeoGebra command '"+tokToGeoGebra(r.definition)+"' failed.")
+                                reject("GeoGebra command '"+name+' = '+tokToGeoGebra(r.definition)+"' failed.")
                             }
                         }
                     }
