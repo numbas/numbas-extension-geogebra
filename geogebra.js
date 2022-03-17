@@ -135,15 +135,15 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
      */
     var injectApplet = function(options) {
         return new Promise(function(resolve,reject) {
-            var applet, element;
+            var applet;
+            var element = document.createElement('div');
+            container.appendChild(element);
             options.id = 'numbasGGBApplet'+(window.geogebraIdAcc++);
             options.appletOnLoad = function() {
                 var app = applet.getAppletObject();
                 resolve({app: app, element: element, id:options.id});
             };
             applet = new GGBApplet(options, true);
-            element = document.createElement('div');
-            container.appendChild(element);
             applet.inject(element, 'preferHTML5');
         });
     }
@@ -159,6 +159,10 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
                 if(!d.app.exists) {
                     reject("app.exists does not exist");
                 }
+                // Resize the app according to the size that the wrapper element has been given.
+                // GeoGebra seems to set the size of the wrapper to match the applet, but as of 2022-03-17, the inner applet gets height 0 when loaded from a file.
+                var box = d.element.getBoundingClientRect();
+                d.app.setSize(box.width,box.height);
                 resolve(d);
             },delay);
         });
