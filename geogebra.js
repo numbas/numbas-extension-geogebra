@@ -885,7 +885,9 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
             q.signals.on('partsResumed',function() {
                 applet.promise.then(function(d) {
                     setTimeout(function() {
-                    d.app.setBase64(base64);
+                    if(base64) {
+                        d.app.setBase64(base64);
+                    }
                     for(var path in applet.used_to_mark_parts) {
                         paths[path] = true;
                     }
