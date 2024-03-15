@@ -217,7 +217,6 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
         }
         var cmd = unescape_braces(name+' = '+definition);
         var ok = app.evalCommand(cmd);
-        console.log(name,definition,ok);
         return ok;
     }
 
