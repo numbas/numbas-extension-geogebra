@@ -370,8 +370,12 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
                 }
                 objects.forEach(function(name) {
                     var part = parts[name];
-                    part.signals.on('HTMLAttached',function() {
-                        part.display.html.addEventListener('focusout',function(e) {
+                    var html_part = part;
+                    while(html_part.parentPart) {
+                        html_part = html_part.parentPart;
+                    }
+                    html_part.signals.on('HTMLAttached',function() {
+                        html_part.display.html.addEventListener('focusout',function(e) {
                             setTimeout(function() {
                                 var focused = document.activeElement;
                                 var answer_tok = get_part_answer(part,app,name);
