@@ -139,9 +139,8 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
             var element = document.createElement('div');
             container.appendChild(element);
             options.id = 'numbasGGBApplet'+(window.geogebraIdAcc++);
-            options.appletOnLoad = function() {
-                var app = applet.getAppletObject();
-                resolve({app: app, element: element, id:options.id});
+            options.appletOnLoad = function(api) {
+                resolve({app: api, element: element, id:options.id});
             };
             applet = new GGBApplet(options, true);
             applet.inject(element, 'preferHTML5');
