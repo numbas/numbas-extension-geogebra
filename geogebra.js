@@ -15,7 +15,7 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
 
     var delay = 10;
     var container;
-	$(document).ready(function() {
+	Numbas.util.document_ready(function() {
         container = document.createElement('div');
         container.setAttribute('id','numbasgeogebracontainer');
         container.setAttribute('class','invisible');
