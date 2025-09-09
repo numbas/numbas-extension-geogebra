@@ -512,6 +512,7 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
         var element = this.element = document.createElement('div');
         element.className = 'numbas-geogebra-applet numbas-geogebra-loading';
         element.innerHTML = 'GeoGebra applet loading...';
+        element.style['text-align'] = 'start';
 
         var promise = new Promise(function(resolve,reject) {
             var interval = setInterval(function() {
