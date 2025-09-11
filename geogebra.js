@@ -14,12 +14,14 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
     var THTML = types.THTML;
 
     var delay = 10;
-    var container;
+    var containerPromise = Promise.withResolvers();
 	Numbas.util.document_ready(function() {
-        container = document.createElement('div');
+        const container = document.createElement('div');
         container.setAttribute('id','numbasgeogebracontainer');
         container.setAttribute('class','invisible');
         document.body.appendChild(container);
+
+        containerPromise.resolve(container);
 	});
 
     var TGGBApplet = function(data) {
@@ -134,16 +136,18 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
      * @returns {Promise} - resolves to an object `{app, el}` - `app` is the GGBApplet object, `el` is the container element.
      */
     var injectApplet = function(options) {
-        return new Promise(function(resolve,reject) {
-            var applet;
-            var element = document.createElement('div');
-            container.appendChild(element);
-            options.id = 'numbasGGBApplet'+(window.geogebraIdAcc++);
-            options.appletOnLoad = function(api) {
-                resolve({app: api, element: element, id:options.id});
-            };
-            applet = new GGBApplet(options, true);
-            applet.inject(element, 'preferHTML5');
+        return containerPromise.promise.then((container) => {
+            return new Promise(function(resolve,reject) {
+                var applet;
+                var element = document.createElement('div');
+                container.appendChild(element);
+                options.id = 'numbasGGBApplet'+(window.geogebraIdAcc++);
+                options.appletOnLoad = function(api) {
+                    resolve({app: api, element: element, id:options.id});
+                };
+                applet = new GGBApplet(options, true);
+                applet.inject(element, 'preferHTML5');
+            });
         });
     }
 
