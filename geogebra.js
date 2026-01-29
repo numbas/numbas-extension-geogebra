@@ -496,7 +496,11 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
                 break;
         }
         if(!Numbas.util.objects_equal(answer,part.stagedAnswer)) {
-            part.storeAnswer(answer);
+            if(!app.first_change) {
+                app.first_change = true;
+            } else {
+                part.storeAnswer(answer);
+            }
         }
         part.display.restoreAnswer(part.stagedAnswer);
     }
