@@ -393,6 +393,13 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
                                 }
                             },1);
                         })
+
+                        d.element.addEventListener('focusin', e => {
+                            html_part.display.event_handlers.focusin.apply(html_part.display, e);
+                        });
+                        d.element.addEventListener('focusout', e => {
+                            html_part.display.event_handlers.focusout.apply(html_part.display, e);
+                        });
                     });
                 });
                 var check_debounce = Numbas.util.debounce(100);
@@ -442,10 +449,13 @@ Numbas.addExtension('geogebra',['jme','math','jme-display'],function(extension) 
                 answer = new TVector([answer.value[0][0], answer.value[1][0]]);
             }
         })();
-        part.storeAnswer(os);
-        part.setStudentAnswer();
-        part.storeAnswer(stagedAnswer);
-        part.setDirty(dirty);
+
+        if(!Numbas.util.objects_equal(os,stagedAnswer)) {
+            part.storeAnswer(os);
+            part.setStudentAnswer();
+            part.storeAnswer(stagedAnswer);
+            part.setDirty(dirty);
+        }
         return answer;
     }
   
